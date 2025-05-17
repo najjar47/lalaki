@@ -78,20 +78,25 @@ function showNotification(message, type = 'info') {
 function initializeWebSocket() {
     return new Promise((resolve, reject) => {
         try {
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                socket.close();
+            }
+
             socket = new WebSocket('ws://localhost:3000');
+            console.log('جاري الاتصال بالخادم...');
 
             // تعيين timeout للاتصال
             const connectionTimeout = setTimeout(() => {
                 if (socket.readyState !== WebSocket.OPEN) {
                     socket.close();
-                    reject(new Error('انتهت مهلة الاتصال بالخادم'));
+                    reject(new Error('انتهت مهلة الاتصال بالخادم. تأكد من تشغيل الخادم على المنفذ 3000'));
                 }
             }, 5000);
 
             socket.onopen = () => {
                 clearTimeout(connectionTimeout);
                 updateConnectionStatus(true);
-                console.log('تم فتح اتصال WebSocket');
+                console.log('تم فتح اتصال WebSocket بنجاح');
                 resolve();
             };
 
@@ -99,13 +104,14 @@ function initializeWebSocket() {
                 clearTimeout(connectionTimeout);
                 updateConnectionStatus(false);
                 console.error('خطأ في اتصال WebSocket:', error);
-                reject(error);
+                reject(new Error('فشل الاتصال بالخادم. تأكد من تشغيل الخادم وأنه متاح.'));
             };
 
             socket.onclose = () => {
                 clearTimeout(connectionTimeout);
                 updateConnectionStatus(false);
                 console.log('تم إغلاق اتصال WebSocket');
+                showNotification('تم قطع الاتصال بالخادم', 'error');
             };
 
             socket.onmessage = (event) => {
@@ -115,11 +121,12 @@ function initializeWebSocket() {
                     handleWebSocketMessage(data);
                 } catch (error) {
                     console.error('خطأ في معالجة الرسالة:', error);
+                    showNotification('خطأ في معالجة الرسالة من الخادم', 'error');
                 }
             };
         } catch (error) {
             console.error('خطأ في إنشاء WebSocket:', error);
-            reject(error);
+            reject(new Error('فشل في إنشاء اتصال WebSocket. حاول مرة أخرى.'));
         }
     });
 }
@@ -186,7 +193,7 @@ async function createRoom() {
             console.log('تم تهيئة الوسائط بنجاح');
         } catch (mediaError) {
             console.error('خطأ في تهيئة الوسائط:', mediaError);
-            throw new Error('فشل في الوصول إلى الميكروفون. الرجاء التأكد من السماح بالوصول إلى الميكروفون.');
+            throw new Error('فشل في الوصول إلى الميكروفون. الرجاء التأكد من السماح بالوصول إلى الميكروفون وأنه متصل بشكل صحيح.');
         }
         
         // إنشاء اتصال WebSocket جديد
@@ -195,14 +202,14 @@ async function createRoom() {
             console.log('تم إنشاء اتصال WebSocket بنجاح');
         } catch (wsError) {
             console.error('خطأ في اتصال WebSocket:', wsError);
-            throw new Error('فشل الاتصال بالخادم. الرجاء التأكد من تشغيل الخادم.');
+            throw new Error('فشل الاتصال بالخادم. الرجاء التأكد من تشغيل الخادم على المنفذ 3000.');
         }
         
         // انتظار لحظة للتأكد من استقرار الاتصال
         await new Promise(resolve => setTimeout(resolve, 1000));
         
         if (!socket || socket.readyState !== WebSocket.OPEN) {
-            throw new Error('فشل الاتصال بالخادم');
+            throw new Error('فشل الاتصال بالخادم. حاول مرة أخرى.');
         }
 
         // إرسال طلب إنشاء الغرفة
@@ -220,6 +227,7 @@ async function createRoom() {
         displayRoomCode(roomCode);
         roomNumber.textContent = roomCode;
         joinRequests.classList.remove('hidden');
+        addParticipant(userName); // إضافة المالك كمشارك
         
         // إظهار رسالة نجاح
         showNotification('تم إنشاء الغرفة بنجاح', 'success');
