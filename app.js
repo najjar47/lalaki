@@ -1,4 +1,6 @@
+// ==========================================
 // المتغيرات العامة
+// ==========================================
 let localStream = null;
 let peerConnection = null;
 let roomCode = null;
@@ -7,7 +9,9 @@ let userName = '';
 let socket = null;
 let isRoomOwner = false;
 
-// تهيئة عناصر الواجهة
+// ==========================================
+// عناصر واجهة المستخدم
+// ==========================================
 const createRoomBtn = document.getElementById('createRoomBtn');
 const joinRoomBtn = document.getElementById('joinRoomBtn');
 const roomCodeInput = document.getElementById('roomCode');
@@ -29,7 +33,9 @@ const requestsList = document.getElementById('requestsList');
 const connectionStatus = document.getElementById('connectionStatus');
 const notifications = document.getElementById('notifications');
 
-// إضافة مستمعي الأحداث
+// ==========================================
+// مستمعي الأحداث
+// ==========================================
 createRoomBtn.addEventListener('click', createRoom);
 joinRoomBtn.addEventListener('click', joinRoom);
 muteBtn.addEventListener('click', toggleMute);
@@ -37,22 +43,85 @@ leaveBtn.addEventListener('click', leaveRoom);
 closeTutorial.addEventListener('click', () => tutorial.classList.add('hidden'));
 copyCodeBtn.addEventListener('click', copyRoomCode);
 
+// ==========================================
+// وظائف إدارة الإشعارات
+// ==========================================
+
+// دالة عرض الإشعارات
+function showNotification(message, type = 'info') {
+    const notification = document.createElement('div');
+    notification.className = `notification ${type}`;
+    notification.innerHTML = `
+        <div class="notification-content">
+            <i class="fas fa-${type === 'error' ? 'exclamation-circle' : type === 'success' ? 'check-circle' : 'info-circle'}"></i>
+            <span>${message}</span>
+        </div>
+        <button class="close-notification" onclick="this.parentElement.remove()">
+            <i class="fas fa-times"></i>
+        </button>
+    `;
+    notifications.appendChild(notification);
+    
+    // إزالة الإشعار تلقائياً بعد 5 ثواني
+    setTimeout(() => {
+        if (notification.parentElement) {
+            notification.remove();
+        }
+    }, 5000);
+}
+
+// ==========================================
+// وظائف إدارة الاتصال
+// ==========================================
+
 // دالة إنشاء اتصال WebSocket
 function initializeWebSocket() {
-    socket = new WebSocket('ws://localhost:8080');
+    return new Promise((resolve, reject) => {
+        try {
+            socket = new WebSocket('ws://localhost:3000');
 
-    socket.onopen = () => {
-        updateConnectionStatus(true);
-    };
+            // تعيين timeout للاتصال
+            const connectionTimeout = setTimeout(() => {
+                if (socket.readyState !== WebSocket.OPEN) {
+                    socket.close();
+                    reject(new Error('انتهت مهلة الاتصال بالخادم'));
+                }
+            }, 5000);
 
-    socket.onclose = () => {
-        updateConnectionStatus(false);
-    };
+            socket.onopen = () => {
+                clearTimeout(connectionTimeout);
+                updateConnectionStatus(true);
+                console.log('تم فتح اتصال WebSocket');
+                resolve();
+            };
 
-    socket.onmessage = (event) => {
-        const data = JSON.parse(event.data);
-        handleWebSocketMessage(data);
-    };
+            socket.onerror = (error) => {
+                clearTimeout(connectionTimeout);
+                updateConnectionStatus(false);
+                console.error('خطأ في اتصال WebSocket:', error);
+                reject(error);
+            };
+
+            socket.onclose = () => {
+                clearTimeout(connectionTimeout);
+                updateConnectionStatus(false);
+                console.log('تم إغلاق اتصال WebSocket');
+            };
+
+            socket.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    console.log('رسالة واردة:', data);
+                    handleWebSocketMessage(data);
+                } catch (error) {
+                    console.error('خطأ في معالجة الرسالة:', error);
+                }
+            };
+        } catch (error) {
+            console.error('خطأ في إنشاء WebSocket:', error);
+            reject(error);
+        }
+    });
 }
 
 // دالة تحديث حالة الاتصال
@@ -81,10 +150,18 @@ function handleWebSocketMessage(data) {
         case 'ROOM_CLOSED':
             handleRoomClosed();
             break;
+        case 'PARTICIPANT_JOINED':
+            addParticipant(data.userName);
+            showNotification(`انضم ${data.userName} إلى الغرفة`, 'info');
+            break;
     }
 }
 
-// دوال إدارة الغرف
+// ==========================================
+// وظائف إدارة الغرف
+// ==========================================
+
+// دالة إنشاء غرفة جديدة
 async function createRoom() {
     const name = userNameInput.value.trim();
     if (!name) {
@@ -93,26 +170,68 @@ async function createRoom() {
     }
 
     try {
+        // تنظيف الحالة السابقة
+        await leaveRoom();
+        
+        // تعيين المتغيرات
         userName = name;
         isRoomOwner = true;
         roomCode = Math.floor(100000 + Math.random() * 900000).toString();
-        await initializeMediaStream();
-        initializeWebSocket();
+
+        console.log('بدء إنشاء الغرفة:', { userName, roomCode });
+        
+        // تهيئة الوسائط أولاً
+        try {
+            await initializeMediaStream();
+            console.log('تم تهيئة الوسائط بنجاح');
+        } catch (mediaError) {
+            console.error('خطأ في تهيئة الوسائط:', mediaError);
+            throw new Error('فشل في الوصول إلى الميكروفون. الرجاء التأكد من السماح بالوصول إلى الميكروفون.');
+        }
+        
+        // إنشاء اتصال WebSocket جديد
+        try {
+            await initializeWebSocket();
+            console.log('تم إنشاء اتصال WebSocket بنجاح');
+        } catch (wsError) {
+            console.error('خطأ في اتصال WebSocket:', wsError);
+            throw new Error('فشل الاتصال بالخادم. الرجاء التأكد من تشغيل الخادم.');
+        }
+        
+        // انتظار لحظة للتأكد من استقرار الاتصال
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        if (!socket || socket.readyState !== WebSocket.OPEN) {
+            throw new Error('فشل الاتصال بالخادم');
+        }
+
+        // إرسال طلب إنشاء الغرفة
+        const createRoomMessage = {
+            type: 'CREATE_ROOM',
+            roomCode,
+            userName
+        };
+        
+        console.log('إرسال طلب إنشاء الغرفة:', createRoomMessage);
+        socket.send(JSON.stringify(createRoomMessage));
+        
+        // تحديث واجهة المستخدم
         showActiveRoom();
         displayRoomCode(roomCode);
         roomNumber.textContent = roomCode;
         joinRequests.classList.remove('hidden');
         
-        socket.send(JSON.stringify({
-            type: 'CREATE_ROOM',
-            roomCode,
-            userName
-        }));
+        // إظهار رسالة نجاح
+        showNotification('تم إنشاء الغرفة بنجاح', 'success');
+        console.log('تم إنشاء الغرفة بنجاح:', { roomCode });
     } catch (error) {
+        console.error('خطأ في إنشاء الغرفة:', error);
         showNotification('حدث خطأ أثناء إنشاء الغرفة: ' + error.message, 'error');
+        await leaveRoom();
     }
 }
 
+// دالة الانضمام إلى غرفة
 async function joinRoom() {
     const name = userName2Input.value.trim();
     const code = roomCodeInput.value.trim();
@@ -128,11 +247,25 @@ async function joinRoom() {
     }
 
     try {
+        // تنظيف الحالة السابقة
+        await leaveRoom();
+        
         userName = name;
         roomCode = code;
-        await initializeMediaStream();
-        initializeWebSocket();
         
+        // تهيئة الوسائط أولاً
+        await initializeMediaStream();
+        
+        // إنشاء اتصال WebSocket جديد
+        await initializeWebSocket();
+        
+        // انتظار لحظة للتأكد من استقرار الاتصال
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        if (!socket || socket.readyState !== WebSocket.OPEN) {
+            throw new Error('لم يتم إنشاء اتصال مع الخادم');
+        }
+
         socket.send(JSON.stringify({
             type: 'JOIN_REQUEST',
             roomCode,
@@ -141,11 +274,107 @@ async function joinRoom() {
         
         showNotification('تم إرسال طلب الانضمام، في انتظار موافقة مدير الغرفة', 'info');
     } catch (error) {
+        console.error('خطأ في الانضمام:', error);
         showNotification('حدث خطأ أثناء الانضمام إلى الغرفة: ' + error.message, 'error');
+        await leaveRoom();
     }
 }
 
-// دوال إدارة المشاركين
+// دالة تنظيف الموارد
+async function leaveRoom() {
+    try {
+        if (localStream) {
+            localStream.getTracks().forEach(track => track.stop());
+        }
+        
+        if (socket && socket.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify({
+                type: 'LEAVE_ROOM',
+                roomCode,
+                userName
+            }));
+            socket.close();
+        }
+        
+        localStream = null;
+        peerConnection = null;
+        roomCode = null;
+        isMuted = false;
+        userName = '';
+        socket = null;
+        isRoomOwner = false;
+        
+        hideActiveRoom();
+        joinRequests.classList.add('hidden');
+        participants.innerHTML = '';
+        requestsList.innerHTML = '';
+        
+        userNameInput.value = '';
+        userName2Input.value = '';
+        roomCodeInput.value = '';
+        
+        updateMuteButton();
+    } catch (error) {
+        console.error('خطأ في مغادرة الغرفة:', error);
+    }
+}
+
+// ==========================================
+// وظائف إدارة المشاركين
+// ==========================================
+
+// دالة عرض طلب انضمام
+function showJoinRequest(requesterName) {
+    const requestDiv = document.createElement('div');
+    requestDiv.className = 'join-request';
+    requestDiv.setAttribute('data-name', requesterName);
+    requestDiv.innerHTML = `
+        <span class="requester-name">${requesterName}</span>
+        <div class="request-actions">
+            <button class="btn accept" onclick="acceptJoinRequest('${requesterName}')">
+                <i class="fas fa-check"></i> قبول
+            </button>
+            <button class="btn reject" onclick="rejectJoinRequest('${requesterName}')">
+                <i class="fas fa-times"></i> رفض
+            </button>
+        </div>
+    `;
+    requestsList.appendChild(requestDiv);
+    showNotification(`طلب انضمام جديد من ${requesterName}`, 'info');
+}
+
+// دالة قبول طلب الانضمام
+function acceptJoinRequest(requesterName) {
+    socket.send(JSON.stringify({
+        type: 'JOIN_ACCEPTED',
+        roomCode,
+        userName: requesterName
+    }));
+    removeJoinRequest(requesterName);
+    addParticipant(requesterName);
+    showNotification(`تم قبول ${requesterName} في الغرفة`, 'success');
+}
+
+// دالة رفض طلب الانضمام
+function rejectJoinRequest(requesterName) {
+    socket.send(JSON.stringify({
+        type: 'JOIN_REJECTED',
+        roomCode,
+        userName: requesterName
+    }));
+    removeJoinRequest(requesterName);
+    showNotification(`تم رفض ${requesterName} من الغرفة`, 'info');
+}
+
+// دالة إزالة طلب الانضمام
+function removeJoinRequest(requesterName) {
+    const request = requestsList.querySelector(`[data-name="${requesterName}"]`);
+    if (request) {
+        request.remove();
+    }
+}
+
+// دالة إضافة مشارك جديد
 function addParticipant(name) {
     const participantDiv = document.createElement('div');
     participantDiv.className = 'participant';
@@ -162,71 +391,101 @@ function addParticipant(name) {
     participants.appendChild(participantDiv);
 }
 
+// دالة إزالة مشارك
 function removeParticipant(name) {
     const participant = participants.querySelector(`[data-name="${name}"]`);
     if (participant) {
         participant.remove();
+        showNotification(`غادر ${name} الغرفة`, 'info');
     }
 }
 
-// دوال إدارة طلبات الانضمام
-function showJoinRequest(requesterName) {
-    const requestDiv = document.createElement('div');
-    requestDiv.className = 'join-request';
-    requestDiv.setAttribute('data-name', requesterName);
-    
-    const acceptBtn = document.createElement('button');
-    acceptBtn.className = 'btn accept';
-    acceptBtn.innerHTML = '<i class="fas fa-check"></i> قبول';
-    
-    const rejectBtn = document.createElement('button');
-    rejectBtn.className = 'btn reject';
-    rejectBtn.innerHTML = '<i class="fas fa-times"></i> رفض';
-    
-    const actionsDiv = document.createElement('div');
-    actionsDiv.className = 'request-actions';
-    actionsDiv.appendChild(acceptBtn);
-    actionsDiv.appendChild(rejectBtn);
-    
-    requestDiv.innerHTML = `
-        <span class="requester-name">${requesterName}</span>
-    `;
-    requestDiv.appendChild(actionsDiv);
-    
-    // إضافة event listeners
-    acceptBtn.addEventListener('click', () => acceptJoinRequest(requesterName));
-    rejectBtn.addEventListener('click', () => rejectJoinRequest(requesterName));
-    
-    requestsList.appendChild(requestDiv);
-}
+// ==========================================
+// وظائف إدارة الوسائط
+// ==========================================
 
-function acceptJoinRequest(requesterName) {
-    socket.send(JSON.stringify({
-        type: 'JOIN_ACCEPTED',
-        roomCode,
-        userName: requesterName
-    }));
-    removeJoinRequest(requesterName);
-    addParticipant(requesterName);
-}
+// دالة تهيئة الوسائط
+async function initializeMediaStream() {
+    try {
+        if (localStream) {
+            localStream.getTracks().forEach(track => track.stop());
+            localStream = null;
+        }
 
-function rejectJoinRequest(requesterName) {
-    socket.send(JSON.stringify({
-        type: 'JOIN_REJECTED',
-        roomCode,
-        userName: requesterName
-    }));
-    removeJoinRequest(requesterName);
-}
+        localStream = await navigator.mediaDevices.getUserMedia({
+            audio: true,
+            video: false
+        });
 
-function removeJoinRequest(requesterName) {
-    const request = requestsList.querySelector(`[data-name="${requesterName}"]`);
-    if (request) {
-        request.remove();
+        updateMuteButton();
+        return localStream;
+    } catch (error) {
+        console.error('خطأ في الوصول إلى الميكروفون:', error);
+        throw new Error('فشل في الوصول إلى الميكروفون. الرجاء التأكد من السماح بالوصول إلى الميكروفون.');
     }
 }
 
-// دوال معالجة الأحداث
+// دالة التحكم في كتم الصوت
+function toggleMute() {
+    if (!localStream) {
+        showNotification('لا يوجد اتصال صوتي نشط', 'error');
+        return;
+    }
+
+    const audioTrack = localStream.getAudioTracks()[0];
+    if (audioTrack) {
+        isMuted = !isMuted;
+        updateMuteButton();
+        showNotification(`تم ${isMuted ? 'كتم' : 'تشغيل'} الميكروفون`, 'info');
+    }
+}
+
+// دالة تحديث حالة زر كتم الصوت
+function updateMuteButton() {
+    if (localStream) {
+        const audioTrack = localStream.getAudioTracks()[0];
+        if (audioTrack) {
+            muteBtn.innerHTML = `<i class="fas fa-${isMuted ? 'microphone-slash' : 'microphone'}"></i>`;
+            audioTrack.enabled = !isMuted;
+        }
+    }
+}
+
+// ==========================================
+// وظائف واجهة المستخدم
+// ==========================================
+
+// دالة عرض الغرفة
+function showActiveRoom() {
+    activeRoom.classList.remove('hidden');
+}
+
+// دالة إخفاء الغرفة
+function hideActiveRoom() {
+    activeRoom.classList.add('hidden');
+}
+
+// دالة عرض رمز الغرفة
+function displayRoomCode(code) {
+    roomCodeDisplay.textContent = code;
+    displayedRoomCode.textContent = code;
+}
+
+// دالة نسخ رمز الغرفة
+function copyRoomCode() {
+    const code = displayedRoomCode.textContent;
+    navigator.clipboard.writeText(code).then(() => {
+        copyMessage.textContent = 'تم النسخ!';
+        copyMessage.classList.add('show');
+        setTimeout(() => {
+            copyMessage.classList.remove('show');
+        }, 2000);
+    }).catch(() => {
+        showNotification('فشل نسخ الرمز', 'error');
+    });
+}
+
+// دالة معالجة قبول الانضمام
 function handleJoinAccepted(data) {
     showActiveRoom();
     displayRoomCode(roomCode);
@@ -234,105 +493,14 @@ function handleJoinAccepted(data) {
     showNotification('تم قبول طلب انضمامك للغرفة', 'success');
 }
 
+// دالة معالجة رفض الانضمام
 function handleJoinRejected() {
     leaveRoom();
     showNotification('تم رفض طلب انضمامك للغرفة', 'error');
 }
 
+// دالة معالجة إغلاق الغرفة
 function handleRoomClosed() {
     leaveRoom();
-    showNotification('تم إغلاق الغرفة من قبل المدير', 'info');
-}
-
-// دوال إدارة الوسائط
-async function initializeMediaStream() {
-    try {
-        localStream = await navigator.mediaDevices.getUserMedia({
-            audio: true,
-            video: false
-        });
-        addParticipant('أنت');
-    } catch (error) {
-        throw new Error('لم نتمكن من الوصول إلى الميكروفون');
-    }
-}
-
-function toggleMute() {
-    if (localStream) {
-        isMuted = !isMuted;
-        localStream.getAudioTracks().forEach(track => {
-            track.enabled = !isMuted;
-        });
-        muteBtn.innerHTML = `
-            <i class="fas fa-${isMuted ? 'microphone-slash' : 'microphone'}"></i>
-            <span>${isMuted ? 'تشغيل الصوت' : 'كتم الصوت'}</span>
-        `;
-    }
-}
-
-// دوال واجهة المستخدم
-function showNotification(message, type = 'info') {
-    const notification = document.createElement('div');
-    notification.className = `notification ${type}`;
-    notification.innerHTML = `
-        <i class="fas fa-${type === 'error' ? 'exclamation-circle' : 
-                        type === 'success' ? 'check-circle' : 
-                        'info-circle'}"></i>
-        <span>${message}</span>
-    `;
-    notifications.appendChild(notification);
-    setTimeout(() => notification.remove(), 5000);
-}
-
-function displayRoomCode(code) {
-    roomCodeDisplay.classList.remove('hidden');
-    displayedRoomCode.textContent = code;
-}
-
-async function copyRoomCode() {
-    try {
-        await navigator.clipboard.writeText(roomCode);
-        copyMessage.classList.add('show');
-        setTimeout(() => copyMessage.classList.remove('show'), 2000);
-    } catch (error) {
-        showNotification('حدث خطأ أثناء نسخ الرمز', 'error');
-    }
-}
-
-// دوال التنظيف والإغلاق
-function leaveRoom() {
-    if (localStream) {
-        localStream.getTracks().forEach(track => track.stop());
-        localStream = null;
-    }
-    
-    if (peerConnection) {
-        peerConnection.close();
-        peerConnection = null;
-    }
-
-    if (socket) {
-        socket.send(JSON.stringify({
-            type: 'LEAVE_ROOM',
-            roomCode
-        }));
-        socket.close();
-    }
-
-    roomCode = null;
-    isRoomOwner = false;
-    participants.innerHTML = '';
-    activeRoom.classList.add('hidden');
-    roomCodeDisplay.classList.add('hidden');
-    document.querySelector('.room-section').classList.remove('hidden');
-}
-
-function showActiveRoom() {
-    document.querySelector('.room-section').classList.add('hidden');
-    activeRoom.classList.remove('hidden');
-}
-
-// التحقق من دعم المتصفح
-if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-    showNotification('متصفحك لا يدعم المكالمات الصوتية. الرجاء استخدام متصفح حديث.', 'error');
+    showNotification('تم إغلاق الغرفة من قبل المدير', 'error');
 }
