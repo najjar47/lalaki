@@ -2,9 +2,9 @@
   "name": "abu-hamza47-voice-chat",
   "version": "1.0.0",
   "description": "تطبيق دردشة صوتية عربي",
-  "main": "combined.js",
+  "main": "server.js",
   "scripts": {
-    "start": "node combined.js"
+    "start": "node server.js"
   },
   "dependencies": {
     "ws": "^8.16.0",
