@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html dir="rtl" lang="ar">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Abu Hamza47 - دردشة صوتية</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="logo">
+                <i class="fas fa-microphone-alt logo-icon"></i>
+                <h1>Abu Hamza47</h1>
+                <p>دردشة صوتية مباشرة</p>
+            </div>
+            <div id="roomCodeDisplay" class="room-code-display hidden">
+                <p>رمز الغرفة:</p>
+                <div class="code-container">
+                    <span id="displayedRoomCode" class="room-code"></span>
+                    <button id="copyCodeBtn" class="btn copy-btn" title="نسخ الرمز">
+                        <i class="fas fa-copy"></i>
+                    </button>
+                </div>
+                <p class="copy-message" id="copyMessage">تم النسخ!</p>
+            </div>
+        </header>
+
+        <main>
+            <div class="room-section">
+                <div class="create-room">
+                    <h2><i class="fas fa-plus-circle"></i> إنشاء غرفة جديدة</h2>
+                    <div class="input-group">
+                        <i class="fas fa-user input-icon"></i>
+                        <input type="text" id="userName" placeholder="أدخل اسمك" required>
+                    </div>
+                    <button id="createRoomBtn" class="btn primary">
+                        <i class="fas fa-plus"></i> إنشاء غرفة
+                    </button>
+                </div>
+                
+                <div class="join-room">
+                    <h2><i class="fas fa-sign-in-alt"></i> الانضمام إلى غرفة</h2>
+                    <div class="input-group">
+                        <i class="fas fa-user input-icon"></i>
+                        <input type="text" id="userName2" placeholder="أدخل اسمك" required>
+                    </div>
+                    <div class="input-group">
+                        <i class="fas fa-key input-icon"></i>
+                        <input type="text" id="roomCode" placeholder="أدخل رمز الغرفة (6 أرقام)" maxlength="6">
+                    </div>
+                    <button id="joinRoomBtn" class="btn secondary">
+                        <i class="fas fa-door-open"></i> انضمام
+                    </button>
+                </div>
+
+                <div class="qr-scanner">
+                    <h2><i class="fas fa-qrcode"></i> مسح رمز QR</h2>
+                    <button id="scanQRBtn" class="btn">
+                        <i class="fas fa-camera"></i> مسح الرمز
+                    </button>
+                    <div id="qrReader" class="qr-reader-container"></div>
+                </div>
+            </div>
+
+            <div class="active-room hidden" id="activeRoom">
+                <div class="room-header">
+                    <h2><i class="fas fa-users"></i> الغرفة: <span id="roomNumber"></span></h2>
+                    <div class="room-status">
+                        <span id="connectionStatus" class="status-badge connected">
+                            <i class="fas fa-circle"></i> متصل
+                        </span>
+                    </div>
+                </div>
+                
+                <div class="room-info">
+                    <div class="participants-section">
+                        <h3><i class="fas fa-user-friends"></i> المشاركون في الغرفة</h3>
+                        <div class="participants" id="participants">
+                            <!-- سيتم إضافة المشاركين هنا ديناميكياً -->
+                        </div>
+                    </div>
+
+                    <div class="join-requests hidden" id="joinRequests">
+                        <h3><i class="fas fa-user-plus"></i> طلبات الانضمام</h3>
+                        <div class="requests-list" id="requestsList">
+                            <!-- سيتم إضافة طلبات الانضمام هنا -->
+                        </div>
+                    </div>
+                </div>
+
+                <div class="controls">
+                    <button id="muteBtn" class="btn control-btn">
+                        <i class="fas fa-microphone"></i>
+                        <span>كتم الصوت</span>
+                    </button>
+                    <button id="leaveBtn" class="btn danger control-btn">
+                        <i class="fas fa-sign-out-alt"></i>
+                        <span>مغادرة الغرفة</span>
+                    </button>
+                </div>
+            </div>
+        </main>
+
+        <div id="tutorial" class="tutorial">
+            <h3><i class="fas fa-info-circle"></i> دليل الاستخدام</h3>
+            <ul>
+                <li><i class="fas fa-check"></i> أدخل اسمك أولاً</li>
+                <li><i class="fas fa-check"></i> اضغط على "إنشاء غرفة" لإنشاء غرفة جديدة</li>
+                <li><i class="fas fa-check"></i> شارك رمز الغرفة مع أصدقائك</li>
+                <li><i class="fas fa-check"></i> سيحتاج المشاركون لموافقتك للانضمام</li>
+            </ul>
+            <button id="closeTutorial" class="btn">
+                <i class="fas fa-times"></i> فهمت
+            </button>
+        </div>
+    </div>
+
+    <div id="notifications" class="notifications"></div>
+
+    <script src="app.js"></script>
+</body>
+</html> 
