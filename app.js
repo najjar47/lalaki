@@ -41,7 +41,7 @@ copyCodeBtn.addEventListener('click', copyRoomCode);
 
 // دالة إنشاء اتصال WebSocket
 function initializeWebSocket() {
-    socket = new WebSocket('wss://your-websocket-server.com'); // قم بتغيير هذا الرابط إلى خادم WebSocket الخاص بك
+    socket = new WebSocket('ws://localhost:8080');
 
     socket.onopen = () => {
         updateConnectionStatus(true);
@@ -79,6 +79,13 @@ function handleWebSocketMessage(data) {
             break;
         case 'PARTICIPANT_LEFT':
             removeParticipant(data.userName);
+            break;
+        case 'ROOM_CLOSED':
+            handleRoomClosed();
+            break;
+        case 'PARTICIPANT_JOINED':
+            addParticipant(data.userName);
+            showNotification(`انضم ${data.userName} إلى الغرفة`, 'info');
             break;
     }
 }
@@ -151,6 +158,7 @@ async function joinRoom() {
 function showJoinRequest(requesterName) {
     const requestDiv = document.createElement('div');
     requestDiv.className = 'join-request';
+    requestDiv.setAttribute('data-name', requesterName);
     requestDiv.innerHTML = `
         <span class="requester-name">${requesterName}</span>
         <div class="request-actions">
@@ -163,6 +171,7 @@ function showJoinRequest(requesterName) {
         </div>
     `;
     requestsList.appendChild(requestDiv);
+    showNotification(`طلب انضمام جديد من ${requesterName}`, 'info');
 }
 
 // دالة قبول طلب الانضمام
@@ -174,6 +183,7 @@ function acceptJoinRequest(requesterName) {
     }));
     removeJoinRequest(requesterName);
     addParticipant(requesterName);
+    showNotification(`تم قبول ${requesterName} في الغرفة`, 'success');
 }
 
 // دالة رفض طلب الانضمام
@@ -184,6 +194,7 @@ function rejectJoinRequest(requesterName) {
         userName: requesterName
     }));
     removeJoinRequest(requesterName);
+    showNotification(`تم رفض ${requesterName} من الغرفة`, 'info');
 }
 
 // دالة إزالة طلب الانضمام
@@ -208,6 +219,12 @@ function handleJoinRejected() {
     showNotification('تم رفض طلب انضمامك للغرفة', 'error');
 }
 
+// دالة معالجة إغلاق الغرفة
+function handleRoomClosed() {
+    leaveRoom();
+    showNotification('تم إغلاق الغرفة من قبل المدير', 'error');
+}
+
 // دالة إضافة مشارك جديد
 function addParticipant(name) {
     const participantDiv = document.createElement('div');
@@ -230,6 +247,7 @@ function removeParticipant(name) {
     const participant = participants.querySelector(`[data-name="${name}"]`);
     if (participant) {
         participant.remove();
+        showNotification(`غادر ${name} الغرفة`, 'info');
     }
 }
 
@@ -247,4 +265,97 @@ function showNotification(message, type = 'info') {
     }, 5000);
 }
 
-// ... باقي الدوال الموجودة مسبقاً ...
+// دالة عرض رمز الغرفة
+function displayRoomCode(code) {
+    roomCodeDisplay.classList.remove('hidden');
+    displayedRoomCode.textContent = code;
+}
+
+// دالة نسخ رمز الغرفة
+async function copyRoomCode() {
+    try {
+        await navigator.clipboard.writeText(roomCode);
+        copyMessage.classList.add('show');
+        setTimeout(() => {
+            copyMessage.classList.remove('show');
+        }, 2000);
+        showNotification('تم نسخ رمز الغرفة', 'success');
+    } catch (error) {
+        showNotification('حدث خطأ أثناء نسخ الرمز', 'error');
+    }
+}
+
+// دالة تهيئة مسح رمز QR
+function initQRScanner() {
+    showNotification('سيتم إضافة ميزة مسح رمز QR قريباً', 'info');
+}
+
+// دالة تهيئة الوسائط
+async function initializeMediaStream() {
+    try {
+        localStream = await navigator.mediaDevices.getUserMedia({
+            audio: true,
+            video: false
+        });
+        
+        // إضافة المشارك المحلي
+        addParticipant('أنت');
+    } catch (error) {
+        throw new Error('لم نتمكن من الوصول إلى الميكروفون');
+    }
+}
+
+// دالة كتم/تشغيل الصوت
+function toggleMute() {
+    if (localStream) {
+        isMuted = !isMuted;
+        localStream.getAudioTracks().forEach(track => {
+            track.enabled = !isMuted;
+        });
+        const micIcon = muteBtn.querySelector('i');
+        micIcon.className = isMuted ? 'fas fa-microphone-slash' : 'fas fa-microphone';
+        muteBtn.querySelector('span').textContent = isMuted ? 'تشغيل الصوت' : 'كتم الصوت';
+        showNotification(isMuted ? 'تم كتم الصوت' : 'تم تشغيل الصوت', 'info');
+    }
+}
+
+// دالة مغادرة الغرفة
+function leaveRoom() {
+    if (socket) {
+        socket.send(JSON.stringify({
+            type: 'LEAVE_ROOM',
+            roomCode
+        }));
+        socket.close();
+    }
+
+    if (localStream) {
+        localStream.getTracks().forEach(track => track.stop());
+        localStream = null;
+    }
+    
+    if (peerConnection) {
+        peerConnection.close();
+        peerConnection = null;
+    }
+
+    roomCode = null;
+    isRoomOwner = false;
+    participants.innerHTML = '';
+    activeRoom.classList.add('hidden');
+    roomCodeDisplay.classList.add('hidden');
+    joinRequests.classList.add('hidden');
+    document.querySelector('.room-section').classList.remove('hidden');
+    showNotification('تم مغادرة الغرفة', 'info');
+}
+
+// دالة إظهار الغرفة النشطة
+function showActiveRoom() {
+    document.querySelector('.room-section').classList.add('hidden');
+    activeRoom.classList.remove('hidden');
+}
+
+// التحقق من دعم المتصفح للوظائف المطلوبة
+if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    showNotification('متصفحك لا يدعم المكالمات الصوتية. الرجاء استخدام متصفح حديث.', 'error');
+}
