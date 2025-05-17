@@ -46,6 +46,33 @@ closeTutorial.addEventListener('click', () => tutorial.classList.add('hidden'));
 copyCodeBtn.addEventListener('click', copyRoomCode);
 
 // ==========================================
+// وظائف إدارة الإشعارات
+// ==========================================
+
+// دالة عرض الإشعارات
+function showNotification(message, type = 'info') {
+    const notification = document.createElement('div');
+    notification.className = `notification ${type}`;
+    notification.innerHTML = `
+        <div class="notification-content">
+            <i class="fas fa-${type === 'error' ? 'exclamation-circle' : type === 'success' ? 'check-circle' : 'info-circle'}"></i>
+            <span>${message}</span>
+        </div>
+        <button class="close-notification" onclick="this.parentElement.remove()">
+            <i class="fas fa-times"></i>
+        </button>
+    `;
+    notifications.appendChild(notification);
+    
+    // إزالة الإشعار تلقائياً بعد 5 ثواني
+    setTimeout(() => {
+        if (notification.parentElement) {
+            notification.remove();
+        }
+    }, 5000);
+}
+
+// ==========================================
 // وظائف إدارة الاتصال
 // ==========================================
 
@@ -121,28 +148,41 @@ async function createRoom() {
     }
 
     try {
+        // تنظيف الحالة السابقة
+        await leaveRoom();
+        
         userName = name;
         isRoomOwner = true;
         roomCode = Math.floor(100000 + Math.random() * 900000).toString();
+        
+        // تهيئة الوسائط أولاً
         await initializeMediaStream();
+        
+        // إنشاء اتصال WebSocket جديد
         await initializeWebSocket();
         
-        if (socket.readyState === WebSocket.OPEN) {
-            socket.send(JSON.stringify({
-                type: 'CREATE_ROOM',
-                roomCode,
-                userName
-            }));
-            
-            showActiveRoom();
-            displayRoomCode(roomCode);
-            roomNumber.textContent = roomCode;
-            joinRequests.classList.remove('hidden');
-        } else {
+        // انتظار لحظة للتأكد من استقرار الاتصال
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        if (!socket || socket.readyState !== WebSocket.OPEN) {
             throw new Error('فشل الاتصال بالخادم');
         }
+
+        socket.send(JSON.stringify({
+            type: 'CREATE_ROOM',
+            roomCode,
+            userName
+        }));
+        
+        showActiveRoom();
+        displayRoomCode(roomCode);
+        roomNumber.textContent = roomCode;
+        joinRequests.classList.remove('hidden');
+        showNotification('تم إنشاء الغرفة بنجاح', 'success');
     } catch (error) {
+        console.error('خطأ في إنشاء الغرفة:', error);
         showNotification('حدث خطأ أثناء إنشاء الغرفة: ' + error.message, 'error');
+        await leaveRoom();
     }
 }
 
@@ -162,16 +202,19 @@ async function joinRoom() {
     }
 
     try {
-        if (socket) {
-            socket.close();
-            socket = null;
-        }
-
+        // تنظيف الحالة السابقة
+        await leaveRoom();
+        
         userName = name;
         roomCode = code;
         
+        // تهيئة الوسائط أولاً
         await initializeMediaStream();
+        
+        // إنشاء اتصال WebSocket جديد
         await initializeWebSocket();
+        
+        // انتظار لحظة للتأكد من استقرار الاتصال
         await new Promise(resolve => setTimeout(resolve, 500));
         
         if (!socket || socket.readyState !== WebSocket.OPEN) {
@@ -193,22 +236,42 @@ async function joinRoom() {
 }
 
 // دالة تنظيف الموارد
-function leaveRoom() {
-    if (localStream) {
-        localStream.getTracks().forEach(track => track.stop());
+async function leaveRoom() {
+    try {
+        if (localStream) {
+            localStream.getTracks().forEach(track => track.stop());
+        }
+        
+        if (socket && socket.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify({
+                type: 'LEAVE_ROOM',
+                roomCode,
+                userName
+            }));
+            socket.close();
+        }
+        
+        localStream = null;
+        peerConnection = null;
+        roomCode = null;
+        isMuted = false;
+        userName = '';
+        socket = null;
+        isRoomOwner = false;
+        
+        hideActiveRoom();
+        joinRequests.classList.add('hidden');
+        participants.innerHTML = '';
+        requestsList.innerHTML = '';
+        
+        userNameInput.value = '';
+        userName2Input.value = '';
+        roomCodeInput.value = '';
+        
+        updateMuteButton();
+    } catch (error) {
+        console.error('خطأ في مغادرة الغرفة:', error);
     }
-    localStream = null;
-    peerConnection = null;
-    roomCode = null;
-    isMuted = false;
-    userName = '';
-    if (socket) {
-        socket.close();
-    }
-    socket = null;
-    isRoomOwner = false;
-    showNotification('تم تنظيف الموارد والخروج من الغرفة', 'info');
-    hideActiveRoom();
 }
 
 // ==========================================
@@ -288,7 +351,7 @@ function removeParticipant(name) {
     const participant = participants.querySelector(`[data-name="${name}"]`);
     if (participant) {
         participant.remove();
-        showNotification(`تم إزالة المشارك ${name} من الغرفة`, 'info');
+        showNotification(`غادر ${name} الغرفة`, 'info');
     }
 }
 
@@ -363,6 +426,20 @@ function displayRoomCode(code) {
     displayedRoomCode.textContent = code;
 }
 
+// دالة نسخ رمز الغرفة
+function copyRoomCode() {
+    const code = displayedRoomCode.textContent;
+    navigator.clipboard.writeText(code).then(() => {
+        copyMessage.textContent = 'تم النسخ!';
+        copyMessage.classList.add('show');
+        setTimeout(() => {
+            copyMessage.classList.remove('show');
+        }, 2000);
+    }).catch(() => {
+        showNotification('فشل نسخ الرمز', 'error');
+    });
+}
+
 // دالة معالجة قبول الانضمام
 function handleJoinAccepted(data) {
     showActiveRoom();
@@ -381,4 +458,10 @@ function handleJoinRejected() {
 function handleRoomClosed() {
     leaveRoom();
     showNotification('تم إغلاق الغرفة من قبل المدير', 'error');
+}
+
+// دالة تهيئة ماسح QR
+function initQRScanner() {
+    // TODO: إضافة وظيفة مسح رمز QR
+    showNotification('قريباً - ميزة مسح رمز QR', 'info');
 }
